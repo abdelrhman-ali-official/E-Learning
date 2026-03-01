@@ -14,5 +14,6 @@ namespace Shared.ContentModels
         public bool IsVisible { get; init; }
         public bool IsDownloadable { get; init; }
         public DateTime CreatedAt { get; init; }
+        public bool IsCompleted { get; init; }
     }
 }

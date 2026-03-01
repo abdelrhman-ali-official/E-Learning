@@ -20,6 +20,9 @@ namespace Services.Abstractions
         Task<IEnumerable<PublicCourseContentDTO>> GetPublicCourseContentsAsync(Guid courseId);
 
         // --- Student completion tracking ---
+        /// <summary>Returns visible course contents with IsCompleted populated for the given student.</summary>
+        Task<IEnumerable<ContentResultDTO>> GetStudentCourseContentsAsync(Guid courseId, string userId);
+
         /// <summary>Marks a content item complete or incomplete for a student, and recalculates enrollment progress.</summary>
         Task MarkContentCompleteAsync(Guid courseId, int contentId, string userId, bool isComplete);
 

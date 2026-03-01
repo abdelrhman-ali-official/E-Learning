@@ -198,6 +198,25 @@ namespace Services
             return mapper.Map<ContentResultDTO>(content);
         }
 
+        public async Task<IEnumerable<ContentResultDTO>> GetStudentCourseContentsAsync(Guid courseId, string userId)
+        {
+            var contents = await unitOfWork.GetRepository<Content, int>().GetAllAsync();
+            var visible = contents.Where(c => c.CourseId == courseId && c.IsVisible).ToList();
+            var contentIds = visible.Select(c => c.Id).ToHashSet();
+
+            var allProgress = await unitOfWork.GetRepository<WatchProgress, int>().GetAllAsync();
+            var completedSet = allProgress
+                .Where(wp => wp.UserId == userId && contentIds.Contains(wp.ContentId) && wp.IsCompleted)
+                .Select(wp => wp.ContentId)
+                .ToHashSet();
+
+            return visible.Select(c =>
+            {
+                var dto = mapper.Map<ContentResultDTO>(c);
+                return dto with { IsCompleted = completedSet.Contains(c.Id) };
+            });
+        }
+
         public async Task MarkContentCompleteAsync(Guid courseId, int contentId, string userId, bool isComplete)
         {
             // Verify content belongs to this course

@@ -24,8 +24,8 @@ public class StudentContentController : ApiController
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
         await _serviceManager.CourseAccessService.ValidateCourseAccessAsync(courseId, userId);
-        var result = await _serviceManager.ContentService.GetCourseContentsAsync(courseId);
-        return Ok(result.Where(c => c.IsVisible));
+        var result = await _serviceManager.ContentService.GetStudentCourseContentsAsync(courseId, userId);
+        return Ok(result);
     }
 
     [HttpGet("/api/student/courses/{courseId:guid}/content/{id:int}")]
