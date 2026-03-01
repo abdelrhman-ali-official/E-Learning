@@ -1,0 +1,979 @@
+﻿using Domain.Entities.SecurityEntities;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
+using Shared.SecurityModels;
+using System;
+using System.Collections.Generic;
+using System.IdentityModel.Tokens.Jwt;
+using System.Linq;
+using System.Security.Claims;
+using System.Text;
+using System.Threading.Tasks;
+using Domain.Exceptions;
+using AutoMapper;
+using Shared.OrderModels;
+using UserAddress = Domain.Entities.SecurityEntities.Address;
+using Microsoft.Extensions.DependencyInjection;
+using Domain.Contracts;
+using Services.Abstractions;
+
+namespace Services
+{
+    public class AuthenticationService : IAuthenticationService
+    {
+        private readonly UserManager<User> userManager;
+        private readonly IOptions<JwtOptions> options;
+        private readonly IOptions<DomainSettings> domainOptions;
+        private readonly IMapper mapper;
+        private readonly RoleManager<IdentityRole> roleManager;
+
+        public AuthenticationService(
+            UserManager<User> userManager, 
+            IOptions<JwtOptions> options, 
+            IOptions<DomainSettings> domainOptions, 
+            IMapper mapper, 
+            RoleManager<IdentityRole> roleManager)
+        {
+            this.userManager = userManager;
+            this.options = options;
+            this.domainOptions = domainOptions;
+            this.mapper = mapper;
+            this.roleManager = roleManager;
+        }
+
+        public async Task<UserResultDTO> RegisterAsync(UserRegisterDTO registerModel)
+        {
+            try
+            {
+                List<string> validationErrors = new();
+                
+                if (string.IsNullOrWhiteSpace(registerModel.Email))
+                    validationErrors.Add("Email is required");
+                
+                if (string.IsNullOrWhiteSpace(registerModel.UserName))
+                    validationErrors.Add("Username is required");
+                
+                if (string.IsNullOrWhiteSpace(registerModel.Password))
+                    validationErrors.Add("Password is required");
+                
+                if (string.IsNullOrWhiteSpace(registerModel.FirstName) || string.IsNullOrWhiteSpace(registerModel.LastName))
+                    validationErrors.Add("First name and last name are required");
+                
+                if (!string.IsNullOrWhiteSpace(registerModel.Email) && await userManager.FindByEmailAsync(registerModel.Email) != null)
+                    validationErrors.Add("Email is already in use");
+                
+                if (!string.IsNullOrWhiteSpace(registerModel.UserName) && await userManager.FindByNameAsync(registerModel.UserName) != null) 
+                    validationErrors.Add("Username is already in use");
+                
+                if (validationErrors.Any())
+                    throw new ValidationException(validationErrors);
+
+                if ((byte)registerModel.UserRole == 0)
+                {
+                    registerModel = registerModel with { UserRole = Role.User };
+                }
+
+                var user = new User
+                {
+                    FirstName = registerModel.FirstName,
+                    LastName = registerModel.LastName,
+                    DisplayName = $"{registerModel.FirstName} {registerModel.LastName}",
+                    Email = registerModel.Email,
+                    PhoneNumber = registerModel.PhoneNumber,
+                    UserName = registerModel.UserName,
+                    Gender = registerModel.Gender,
+                    UserRole = registerModel.UserRole,
+                    EmailConfirmed = false 
+                };
+                
+                user.SecurityStamp = Guid.NewGuid().ToString();
+                user.ConcurrencyStamp = Guid.NewGuid().ToString();
+                
+                try
+                {
+                    var result = await userManager.CreateAsync(user, registerModel.Password);
+                    if (!result.Succeeded)
+                    {
+                        var errors = result.Errors.Select(e => e.Description).ToList();
+                        throw new ValidationException(errors);
+                    }
+                }
+                catch (DbUpdateException dbEx) when (dbEx.InnerException?.Message.Contains("Discriminator") == true)
+                {
+                    throw new Exception("User creation failed due to Discriminator issue. Please contact support.", dbEx);
+                }
+                
+                string roleName = user.UserRole.ToString();
+                var roleExists = await userManager.IsInRoleAsync(user, roleName);
+                if (!roleExists)
+                {
+                    await userManager.AddToRoleAsync(user, roleName);
+                }
+                
+                try
+                {
+                    var DomainOptions = domainOptions.Value;
+                    var verificationCode = await userManager.GenerateUserTokenAsync(user, "CustomEmailTokenProvider", "email_confirmation");
+
+                }
+                catch (Exception)
+                {
+                   
+                }
+
+                return new UserResultDTO(
+                    user.DisplayName,
+                    user.Email,
+                    await CreateTokenAsync(user));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in RegisterAsync: {ex.Message}");
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+                }
+                
+           
+                throw;
+            }
+        }
+
+        public async Task<bool> CheckEmailExist(string email)
+        {
+            return await userManager.FindByEmailAsync(email) != null;
+        }
+        public async Task<AddressDTO> AddUserAddress(AddressDTO address, string email)
+        {
+            var user = await userManager.Users
+                .Include(u => u.Address)
+                .FirstOrDefaultAsync(u => u.Email == email)
+                ?? throw new UserNotFoundException(email);
+
+            if (user.Address != null)
+            {
+                throw new Exception("User already has an address. Use update endpoint instead.");
+            }
+
+            user.Address = mapper.Map<UserAddress>(address);
+
+            await userManager.UpdateAsync(user);
+            return mapper.Map<AddressDTO>(user.Address);
+        }
+
+        public async Task<AddressDTO> GetUserAddress(string email)
+        {
+            var user = await userManager.Users
+                .Include(u => u.Address)
+                .FirstOrDefaultAsync(u => u.Email == email)
+                ?? throw new UserNotFoundException(email);
+
+            return user.Address != null ? mapper.Map<AddressDTO>(user.Address) : throw new Exception("User address not found.");
+        }
+
+        public async Task<UserResultDTO> GetUserByEmail(string email)
+        {
+            var user = await userManager.FindByEmailAsync(email) ?? throw new UserNotFoundException(email);
+
+            return new UserResultDTO(user.DisplayName, user.Email, await CreateTokenAsync(user));
+        }
+
+        public async Task<bool> SendVerificationCodeAsync(string email)
+        {
+            var user = await userManager.FindByEmailAsync(email);
+            if (user == null) throw new UnauthorizedAccessException("User not found");
+
+            var verificationCode = await userManager.GenerateUserTokenAsync(user, "CustomEmailTokenProvider", "email_confirmation");
+
+
+
+            var DomainOptions = domainOptions.Value;
+
+
+            return true;
+        }
+
+        public async Task<bool> SendResetPasswordEmailAsync(string email)
+        {
+            if (string.IsNullOrWhiteSpace(email))
+                throw new ArgumentException("Email is required", nameof(email));
+
+            var user = await userManager.FindByEmailAsync(email);
+            if (user == null) 
+                throw new UserNotFoundException(email);
+
+            try
+            {
+                await userManager.UpdateSecurityStampAsync(user);
+
+                var token = await userManager.GeneratePasswordResetTokenAsync(user);
+                
+                var encodedToken = Uri.EscapeDataString(token);
+                
+                var DomainOptions = domainOptions.Value;
+                var resetLink = $"{DomainOptions.bitaryUrl}api/Authentication/ResetPassword?email={Uri.EscapeDataString(email)}&token={encodedToken}";
+/*
+                // Send the reset password email with the generated link
+                await mailingService.SendEmailAsync(
+                    user.Email!, 
+                    "Reset Password", 
+                    $"Click the link to reset your password: {resetLink}\n\n" +
+                    "This link will expire in 24 hours. If you did not request this password reset, please ignore this email."
+                );
+*/
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to send reset password email: {ex.Message}", ex);
+            }
+        }
+        public async Task<bool> ResetPasswordAsync(string email, string token, string newPassword)
+        {
+            if (string.IsNullOrWhiteSpace(email))
+                throw new ArgumentException("Email is required", nameof(email));
+            
+            if (string.IsNullOrWhiteSpace(token))
+                throw new ArgumentException("Reset token is required", nameof(token));
+            
+            if (string.IsNullOrWhiteSpace(newPassword))
+                throw new ArgumentException("New password is required", nameof(newPassword));
+
+            var user = await userManager.FindByEmailAsync(email);
+            if (user == null) 
+                throw new UserNotFoundException(email);
+
+            try
+            {
+                // First verify the token is valid
+                var isValidToken = await userManager.VerifyUserTokenAsync(
+                    user, 
+                    TokenOptions.DefaultProvider, 
+                    "ResetPassword", 
+                    token
+                );
+
+                if (!isValidToken)
+                {
+                    // Try to generate a new token to check if the user's security stamp has changed
+                    await userManager.UpdateSecurityStampAsync(user);
+                    var newToken = await userManager.GeneratePasswordResetTokenAsync(user);
+                    
+                    // If we can generate a new token but the provided one is invalid, it's likely expired
+                    if (!string.IsNullOrEmpty(newToken))
+                    {
+                        throw new Exception("Password reset token has expired. Please request a new password reset link.");
+                    }
+                    
+                    throw new Exception("Invalid password reset token. Please request a new password reset link.");
+                }
+
+                var resetResult = await userManager.ResetPasswordAsync(user, token, newPassword);
+                if (!resetResult.Succeeded)
+                {
+                    var errorMessage = string.Join(", ", resetResult.Errors.Select(e => e.Description));
+                    throw new Exception($"Password reset failed: {errorMessage}");
+                }
+
+                // Update security stamp after successful password reset
+                await userManager.UpdateSecurityStampAsync(user);
+                return true;
+            }
+            catch (Exception ex) when (ex is not UserNotFoundException)
+            {
+                throw new Exception($"Error resetting password: {ex.Message}", ex);
+            }
+        }
+
+
+
+        public async Task<UserResultDTO> LoginAsync(LoginDTO loginModel)
+        {
+            try
+            {
+                Console.WriteLine($"LoginAsync called for: {loginModel.Email}");
+                
+                // First try to safely get the user with error handling to catch SQL NULL issues
+                User user;
+                try
+                {
+                    user = await userManager.FindByEmailAsync(loginModel.Email);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error in FindByEmailAsync: {ex.Message}");
+                    Console.WriteLine("Attempting to fix the user account...");
+                    
+                    // Use UserManager operations to fix user account instead of SQL
+                    await SafeFixUserAccount(loginModel.Email);
+                    
+                    // Try fetching again
+                    user = await userManager.FindByEmailAsync(loginModel.Email);
+                }
+                
+                if (user == null)
+                {
+                    Console.WriteLine($"User not found: {loginModel.Email}");
+                    throw new UnAuthorizedException("Email doesn't exist");
+                }
+                
+                Console.WriteLine($"User found: {user.Id}, {user.Email}, UserRole={(int)user.UserRole}");
+                
+                // Check password
+                var passwordValid = await userManager.CheckPasswordAsync(user, loginModel.Password);
+                if (!passwordValid)
+                {
+                    Console.WriteLine($"Invalid password for user: {loginModel.Email}");
+                    throw new UnAuthorizedException("Invalid password");
+                }
+                
+                Console.WriteLine($"Password validated for: {loginModel.Email}");
+                
+                // If user has Admin role (either in UserRole enum or ASP.NET Identity), ensure both are set correctly
+                if (user.UserRole == Role.Admin || (await userManager.GetRolesAsync(user)).Contains("Admin"))
+                {
+                    await EnsureAdminRolesConsistency(user);
+                }
+                
+                // Create token
+                try
+                {
+                    Console.WriteLine("Generating token...");
+                    var token = await CreateTokenAsync(user);
+                    Console.WriteLine("Token generated successfully");
+                    
+                    return new UserResultDTO(user.DisplayName, user.Email, token);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error generating token: {ex.Message}");
+                    if (ex.InnerException != null)
+                    {
+                        Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+                    }
+                    throw;
+                }
+            }
+            catch (Exception ex) when (!(ex is UnAuthorizedException))
+            {
+                Console.WriteLine($"Unexpected error in LoginAsync: {ex.Message}");
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+                }
+                throw;
+            }
+        }
+
+        // Safer method to fix user accounts that relies only on UserManager
+        private async Task SafeFixUserAccount(string email)
+        {
+            try
+            {
+                Console.WriteLine($"Attempting to fix user account: {email}");
+                
+                // Create a normalized version of the email
+                var normalizedEmail = email.ToUpperInvariant();
+                
+                var users = await userManager.Users
+                    .Where(u => u.NormalizedEmail == normalizedEmail)
+                    .ToListAsync();
+                
+                if (users.Count == 0)
+                {
+                    Console.WriteLine($"No users found with email: {email}");
+                    return;
+                }
+                
+                foreach (var user in users)
+                {
+                    Console.WriteLine($"Fixing user: {user.Id}, {user.Email}");
+                    
+                    // Ensure all string properties are not null
+                    user.UserName = user.UserName ?? $"user_{Guid.NewGuid():N}";
+                    user.NormalizedUserName = user.NormalizedUserName ?? user.UserName.ToUpperInvariant();
+                    user.Email = user.Email ?? email;
+                    user.NormalizedEmail = user.NormalizedEmail ?? normalizedEmail;
+                    user.PhoneNumber = user.PhoneNumber ?? "";
+                    user.SecurityStamp = user.SecurityStamp ?? Guid.NewGuid().ToString();
+                    user.ConcurrencyStamp = user.ConcurrencyStamp ?? Guid.NewGuid().ToString();
+                    user.FirstName = user.FirstName ?? "";
+                    user.LastName = user.LastName ?? "";
+                    user.DisplayName = user.DisplayName ?? $"{user.FirstName} {user.LastName}".Trim();
+                    
+                    // Set UserRole to a valid value if it's 0 (uninitialized)
+                    if ((int)user.UserRole == 0)
+                    {
+                        user.UserRole = Role.User;
+                    }
+                    
+                    // Update the user with fixes
+                    await userManager.UpdateAsync(user);
+                    Console.WriteLine($"User fixed: {user.Id}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error fixing user account: {ex.Message}");
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+                }
+                // Don't throw, allow the login process to continue
+            }
+        }
+
+        private async Task EnsureAdminRolesConsistency(User user)
+        {
+            try
+            {
+                Console.WriteLine($"Ensuring admin roles consistency for user: {user.Email}");
+                bool needsUpdate = false;
+                
+                // Ensure UserRole enum is set to Admin
+                if (user.UserRole != Role.Admin)
+                {
+                    Console.WriteLine("Setting UserRole enum to Admin");
+                    user.UserRole = Role.Admin;
+                    needsUpdate = true;
+                }
+                
+                // Ensure user is in ASP.NET Identity Admin role
+                var userRoles = await userManager.GetRolesAsync(user);
+                if (!userRoles.Contains("Admin"))
+                {
+                    Console.WriteLine("Adding user to ASP.NET Identity Admin role");
+                    
+                    // Ensure Admin role exists
+                    if (!await roleManager.RoleExistsAsync("Admin"))
+                    {
+                        Console.WriteLine("Creating Admin role");
+                        await roleManager.CreateAsync(new IdentityRole("Admin"));
+                    }
+                    
+                    await userManager.AddToRoleAsync(user, "Admin");
+                }
+                
+                if (needsUpdate)
+                {
+                    Console.WriteLine("Updating user");
+                    await userManager.UpdateAsync(user);
+                }
+                
+                Console.WriteLine("Admin roles consistency ensured");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error ensuring admin roles consistency: {ex.Message}");
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+                }
+               
+            }
+        }
+
+        public async Task<AddressDTO> UpdateUserAddress(AddressDTO address, string email)
+        {
+            var user = await userManager.Users
+                .Include(u => u.Address)
+                .FirstOrDefaultAsync(u => u.Email == email)
+                ?? throw new UserNotFoundException(email);
+
+            if (user.Address == null)
+            {
+                user.Address = mapper.Map<UserAddress>(address);
+            }
+            else
+            {
+                user.Address.Name = address.Name;
+                user.Address.Street = address.Street;
+                user.Address.City = address.City;
+                user.Address.Country = address.Country;
+            }
+
+            await userManager.UpdateAsync(user);
+            return mapper.Map<AddressDTO>(user.Address);
+        }
+     
+        private async Task<string> CreateTokenAsync(User user)
+        {
+            try
+            {
+                Console.WriteLine($"Creating token for user: {user.Email}, UserRole={(int)user.UserRole}");
+                
+                var jwtOptions = options.Value;
+                
+                // Validate user data before creating claims
+                if (string.IsNullOrEmpty(user.UserName))
+                {
+                    throw new ArgumentException("Username cannot be null or empty");
+                }
+                if (string.IsNullOrEmpty(user.Email))
+                {
+                    throw new ArgumentException("Email cannot be null or empty");
+                }
+                if (string.IsNullOrEmpty(user.Id))
+                {
+                    throw new ArgumentException("User ID cannot be null or empty");
+                }
+                
+                var authClaims = new List<Claim>
+                {
+                    new Claim(ClaimTypes.Name, user.UserName),
+                    new Claim(ClaimTypes.Email, user.Email),
+                    new Claim(ClaimTypes.NameIdentifier, user.Id)
+                };
+                
+                try
+                {
+                    // First check if UserRole is not initialized (it's zero)
+                    if ((int)user.UserRole == 0)
+                    {
+                        Console.WriteLine("UserRole is 0 (not initialized). Setting to user (1)");
+                        user.UserRole = Role.User;
+                        await userManager.UpdateAsync(user);
+                    }
+                    
+                    string userRoleString = user.UserRole.ToString();
+                    Console.WriteLine($"User role from enum: {userRoleString}");
+                    
+                    // Add UserRole as claim
+                    authClaims.Add(new Claim(ClaimTypes.Role, userRoleString));
+                   
+             
+
+                    
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error accessing UserRole: {ex.Message}");
+                    
+                    user.UserRole = Role.User;
+                    await userManager.UpdateAsync(user);
+                    
+                    // Still add the role claim
+                    authClaims.Add(new Claim(ClaimTypes.Role, Role.User.ToString()));
+                }
+                    
+
+
+                var roles = await userManager.GetRolesAsync(user);
+                Console.WriteLine($"User ASP.NET Identity roles: {string.Join(", ", roles)}");
+                
+                if (roles != null && roles.Any())
+                {
+                    authClaims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role ?? "User")));
+                }
+
+                if (string.IsNullOrEmpty(jwtOptions.SecretKey))
+                {
+                    throw new InvalidOperationException("JWT SecretKey is not configured");
+                }
+                if (string.IsNullOrEmpty(jwtOptions.Issuer))
+                {
+                    throw new InvalidOperationException("JWT Issuer is not configured");
+                }
+                if (string.IsNullOrEmpty(jwtOptions.Audience))
+                {
+                    throw new InvalidOperationException("JWT Audience is not configured");
+                }
+
+                var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.SecretKey));
+                var signingCreds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+                var token = new JwtSecurityToken(
+                    issuer: jwtOptions.Issuer,
+                    audience: jwtOptions.Audience,
+                    expires: DateTime.UtcNow.AddDays(jwtOptions.DurationInDays),
+                    claims: authClaims,
+                    signingCredentials: signingCreds);
+
+                var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+                Console.WriteLine("Token created successfully");
+                
+                return tokenString;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error creating token: {ex.Message}");
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+                }
+                throw;
+            }
+        }
+
+        public async Task<bool> VerifyEmailAsync(string email, string otp)
+        {
+            var user = await userManager.FindByEmailAsync(email) ?? throw new UnauthorizedAccessException("User not found");
+            if (!await userManager.VerifyUserTokenAsync(user, "CustomEmailTokenProvider", "email_confirmation", otp))
+                throw new Exception("Invalid or expired verification code");
+
+            user.EmailConfirmed = true;
+            await userManager.UpdateAsync(user);
+            return true;
+        }
+
+        public async Task<bool> ChangePasswordAsync(string email, string oldPassword, string newPassword)
+        {
+            var user = await userManager.FindByEmailAsync(email) ?? throw new UserNotFoundException(email);
+            var changeResult = await userManager.ChangePasswordAsync(user, oldPassword, newPassword);
+            if (!changeResult.Succeeded)
+                throw new Exception(string.Join(", ", changeResult.Errors.Select(e => e.Description)));
+
+            return true;
+        }
+
+        public async Task<UserInformationDTO> GetUserInfo(string email)
+        {
+            var user = await userManager.Users
+                .Include(u => u.Address)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Email == email)
+                ?? throw new UserNotFoundException(email);
+
+            var firstName = !string.IsNullOrWhiteSpace(user.FirstName) ? user.FirstName : string.Empty;
+            var lastName = !string.IsNullOrWhiteSpace(user.LastName) ? user.LastName : string.Empty;
+            var phoneNumber = !string.IsNullOrWhiteSpace(user.PhoneNumber) ? user.PhoneNumber : string.Empty;
+
+            var address = user.Address != null 
+                ? new AddressDTO 
+                { 
+                    Name = !string.IsNullOrWhiteSpace(user.Address.Name) ? user.Address.Name : string.Empty,
+                    Street = !string.IsNullOrWhiteSpace(user.Address.Street) ? user.Address.Street : string.Empty,
+                    City = !string.IsNullOrWhiteSpace(user.Address.City) ? user.Address.City : string.Empty,
+                    Country = !string.IsNullOrWhiteSpace(user.Address.Country) ? user.Address.Country : string.Empty
+                }
+                : new AddressDTO 
+                { 
+                    Name = string.Empty,
+                    Street = string.Empty,
+                    City = string.Empty,
+                    Country = string.Empty
+                };
+
+            var userRole = user.UserRole;
+            if ((byte)userRole == 0 || !Enum.IsDefined(typeof(Role), userRole))
+            {
+                userRole = Role.User;
+            }
+
+            return new UserInformationDTO
+            {
+                FirstName = firstName,
+                LastName = lastName,
+                Gender = user.Gender,
+                UserRole = userRole,
+                Address = address,
+                PhoneNumber = phoneNumber
+            };
+        }
+
+        public async Task UpdateUserInfo(UserInformationDTO userInfoDTO, string email)
+        {
+            try
+            {
+                var user = await userManager.FindByEmailAsync(email)
+                    ?? throw new UserNotFoundException(email);
+
+                Console.WriteLine($"Found user: ID={user.Id}, Email={user.Email}");
+
+                if ((byte)userInfoDTO.UserRole == 0 || !Enum.IsDefined(typeof(Role), userInfoDTO.UserRole))
+                {
+                    userInfoDTO.UserRole = Role.User;
+                }
+
+                user.FirstName = !string.IsNullOrWhiteSpace(userInfoDTO.FirstName) ? userInfoDTO.FirstName : user.FirstName;
+                user.LastName = !string.IsNullOrWhiteSpace(userInfoDTO.LastName) ? userInfoDTO.LastName : user.LastName;
+                user.Gender = userInfoDTO.Gender;
+                user.UserRole = userInfoDTO.UserRole;
+                user.PhoneNumber = !string.IsNullOrWhiteSpace(userInfoDTO.PhoneNumber) ? userInfoDTO.PhoneNumber : user.PhoneNumber;
+                user.DisplayName = $"{user.FirstName} {user.LastName}".Trim();
+
+                Console.WriteLine($"Updating user: FirstName={user.FirstName}, LastName={user.LastName}, Gender={user.Gender}, Role={user.UserRole}, Phone={user.PhoneNumber}");
+
+                var result = await userManager.UpdateAsync(user);
+                if (!result.Succeeded)
+                {
+                    var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                    throw new Exception($"Failed to update user: {errors}");
+                }
+
+                Console.WriteLine("User updated successfully");
+
+                if (userInfoDTO.Address != null)
+                {
+                    await UpdateUserAddressFromUserInfo(userInfoDTO.Address, email);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ERROR in UpdateUserInfo: {ex.Message}");
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+                }
+                throw; 
+            }
+        }
+
+        private async Task UpdateUserAddressFromUserInfo(AddressDTO addressDTO, string email)
+        {
+            try
+            {
+                var userWithAddress = await userManager.Users
+                    .AsNoTracking() 
+                    .Include(u => u.Address)
+                    .FirstOrDefaultAsync(u => u.Email == email);
+
+                if (userWithAddress == null)
+                    throw new UserNotFoundException(email);
+
+                Console.WriteLine($"Address update: User has address: {userWithAddress.Address != null}");
+
+                var user = await userManager.FindByIdAsync(userWithAddress.Id);
+                if (user == null)
+                    throw new UserNotFoundException(email);
+
+                if (userWithAddress.Address == null)
+                {
+                    // Create a new address
+                    Console.WriteLine("Creating new address for user");
+                    
+                    // Map the DTO to a new address entity
+                    var newAddress = new UserAddress
+                    {
+                        UserId = user.Id,
+                        Name = addressDTO.Name ?? string.Empty,
+                        Street = addressDTO.Street ?? string.Empty,
+                        City = addressDTO.City ?? string.Empty,
+                        Country = addressDTO.Country ?? string.Empty
+                    };
+                    
+                    user.Address = newAddress;
+                }
+                else
+                {
+                    var updatedAddress = new UserAddress
+                    {
+                        Id = userWithAddress.Address.Id,
+                        UserId = user.Id,
+                        Name = addressDTO.Name ?? userWithAddress.Address.Name,
+                        Street = addressDTO.Street ?? userWithAddress.Address.Street,
+                        City = addressDTO.City ?? userWithAddress.Address.City,
+                        Country = addressDTO.Country ?? userWithAddress.Address.Country
+                    };
+                    
+                    user.Address = updatedAddress;
+                }
+                
+                var result = await userManager.UpdateAsync(user);
+                if (!result.Succeeded)
+                {
+                    var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                    throw new Exception($"Failed to update user with address: {errors}");
+                }
+                
+                Console.WriteLine("Address updated successfully");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error updating address in UpdateUserAddressFromUserInfo: {ex.Message}");
+                if (ex.InnerException != null)
+                    Console.WriteLine($"Inner error: {ex.InnerException.Message}");
+                
+                throw new Exception($"Failed to update address: {ex.Message}", ex);
+            }
+        }
+
+        public async Task<object> GetDebugInfo(string email)
+        {
+            var userWithAddress = await userManager.Users
+                .Include(u => u.Address)
+                .FirstOrDefaultAsync(u => u.Email == email);
+            
+            if (userWithAddress == null)
+                throw new UserNotFoundException(email);
+            
+            var addressData = userWithAddress.Address != null
+                ? new
+                {
+                    AddressId = userWithAddress.Address.Id,
+                    UserId = userWithAddress.Address.UserId,
+                    Name = userWithAddress.Address.Name,
+                    Street = userWithAddress.Address.Street,
+                    City = userWithAddress.Address.City,
+                    Country = userWithAddress.Address.Country
+                }
+                : null;
+            
+            var userRaw = await userManager.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Email == email);
+            
+            return new
+            {
+                User = new
+                {
+                    Id = userWithAddress.Id,
+                    Email = userWithAddress.Email,
+                    FirstName = userWithAddress.FirstName,
+                    LastName = userWithAddress.LastName,
+                    HasAddress = userWithAddress.Address != null
+                },
+                Address = addressData,
+                RawNavigation = userRaw.Address != null 
+            };
+        }
+
+        public async Task<bool> FixAdminRoles(string email)
+        {
+            try
+            {
+                var user = await userManager.FindByEmailAsync(email) ?? throw new UserNotFoundException(email);
+                
+                user.UserRole = Role.Admin;
+                
+                var updateResult = await userManager.UpdateAsync(user);
+                if (!updateResult.Succeeded)
+                {
+                    var errorMessage = string.Join(", ", updateResult.Errors.Select(e => e.Description));
+                    throw new Exception($"Failed to update user role: {errorMessage}");
+                }
+                
+                var existingRoles = await userManager.GetRolesAsync(user);
+                if (existingRoles.Any())
+                {
+                    await userManager.RemoveFromRolesAsync(user, existingRoles);
+                }
+                
+                var roleExists = await roleManager.RoleExistsAsync("Admin");
+                if (!roleExists)
+                {
+                    await roleManager.CreateAsync(new IdentityRole("Admin"));
+                }
+                
+                var addToRoleResult = await userManager.AddToRoleAsync(user, "Admin");
+                if (!addToRoleResult.Succeeded)
+                {
+                    var errorMessage = string.Join(", ", addToRoleResult.Errors.Select(e => e.Description));
+                    throw new Exception($"Failed to add user to Admin role: {errorMessage}");
+                }
+                
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // Log error
+                Console.WriteLine($"Error fixing admin roles: {ex.Message}");
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+                }
+                throw;
+            }
+        }
+
+        public async Task<UserResultDTO> CreateInstructorAsync(CreateInstructorDTO model)
+        {
+            try
+            {
+                // Validate input
+                List<string> validationErrors = new();
+                
+                if (string.IsNullOrWhiteSpace(model.Email))
+                    validationErrors.Add("Email is required");
+                
+                if (string.IsNullOrWhiteSpace(model.Password))
+                    validationErrors.Add("Password is required");
+                
+                if (await userManager.FindByEmailAsync(model.Email) != null)
+                    validationErrors.Add("Email is already in use");
+                
+                if (validationErrors.Any())
+                    throw new ValidationException(validationErrors);
+
+                // Create instructor user
+                var user = new User
+                {
+                    FirstName = model.FirstName,
+                    LastName = model.LastName,
+                    DisplayName = $"{model.FirstName} {model.LastName}",
+                    Email = model.Email,
+                    PhoneNumber = model.PhoneNumber,
+                    UserName = model.Email, 
+                    UserRole = Role.Instructor,
+                    EmailConfirmed = true 
+                };
+                
+                user.SecurityStamp = Guid.NewGuid().ToString();
+                user.ConcurrencyStamp = Guid.NewGuid().ToString();
+                
+                var result = await userManager.CreateAsync(user, model.Password);
+                
+                if (!result.Succeeded)
+                {
+                    var errors = result.Errors.Select(e => e.Description).ToList();
+                    throw new ValidationException(errors);
+                }
+
+                if (!await roleManager.RoleExistsAsync("Instructor"))
+                {
+                    await roleManager.CreateAsync(new IdentityRole("Instructor"));
+                }
+                
+                var roleResult = await userManager.AddToRoleAsync(user, "Instructor");
+                if (!roleResult.Succeeded)
+                {
+                    throw new Exception("Failed to assign Instructor role");
+                }
+
+                var jwtToken = await CreateTokenAsync(user);
+
+                return new UserResultDTO(
+                    user.DisplayName,
+                    user.Email!,
+                    jwtToken
+                );
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error creating instructor: {ex.Message}");
+                throw;
+            }
+        }
+
+        public async Task<List<UserResultDTO>> GetAllInstructorsAsync()
+        {
+            try
+            {
+                var instructors = await userManager.Users
+                    .Where(u => u.UserRole == Role.Instructor)
+                    .ToListAsync();
+
+                var result = new List<UserResultDTO>();
+                
+                foreach (var instructor in instructors)
+                {
+                    result.Add(new UserResultDTO(
+                        instructor.DisplayName,
+                        instructor.Email!,
+                        string.Empty 
+                    ));
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error getting instructors: {ex.Message}");
+                throw;
+            }
+        }
+    }
+}

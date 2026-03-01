@@ -1,0 +1,37 @@
+# E-Learning Platform - Package Installation Commands
+
+## Required NuGet Packages
+
+### AWS S3 SDK (for Cloudflare R2 Storage)
+dotnet add Services/Services.csproj package AWSSDK.S3
+
+### FluentValidation (REQUIRED)
+dotnet add Services/Services.csproj package FluentValidation
+dotnet add Services/Services.csproj package FluentValidation.DependencyInjectionExtensions
+dotnet add Start/Start.csproj package FluentValidation.AspNetCore
+
+### Optional: For better logging
+dotnet add Start/Start.csproj package Serilog.AspNetCore
+dotnet add Start/Start.csproj package Serilog.Sinks.Console
+dotnet add Start/Start.csproj package Serilog.Sinks.File
+
+## Database Migration Commands
+
+# Create migration for removing Stripe and adding manual payment system
+dotnet ef migrations add RemoveStripeAddManualPaymentSystem --project Persistence --startup-project Start
+
+# Apply migration to database
+dotnet ef database update --project Persistence --startup-project Start
+
+## Build and Run
+dotnet build
+dotnet run --project Start
+
+## Quick Install Script (Run all at once)
+dotnet add Services/Services.csproj package AWSSDK.S3
+dotnet add Services/Services.csproj package FluentValidation
+dotnet add Services/Services.csproj package FluentValidation.DependencyInjectionExtensions
+dotnet add Start/Start.csproj package FluentValidation.AspNetCore
+dotnet ef migrations add RemoveStripeAddManualPaymentSystem --project Persistence --startup-project Start
+dotnet ef database update --project Persistence --startup-project Start
+dotnet build

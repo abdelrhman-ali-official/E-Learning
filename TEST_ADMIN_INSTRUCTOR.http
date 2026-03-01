@@ -1,0 +1,123 @@
+### TEST 1: Verify controller is registered (NO AUTH REQUIRED - Should return 200)
+GET http://localhost:5000/api/admin/test
+
+###
+
+### TEST 2: Try to create instructor WITHOUT auth (Should return 401, NOT 404)
+POST http://localhost:5000/api/admin/instructors
+Content-Type: application/json
+
+{
+  "email": "instructor@example.com",
+  "firstName": "test",
+  "lastName": "test",
+  "password": "String@1",
+  "phoneNumber": "11111111111111"
+}
+
+###
+
+### STEP 1: Register a new user
+POST http://localhost:5000/api/authentication/register
+Content-Type: application/json
+
+{
+  "email": "testadmin@example.com",
+  "password": "Admin@123",
+  "firstName": "Admin",
+  "lastName": "User",
+  "userName": "testadmin",
+  "phoneNumber": "1234567890",
+  "userRole": 1,
+  "gender": 1
+}
+
+###
+
+### STEP 2: Login with the new user
+POST http://localhost:5000/api/authentication/login
+Content-Type: application/json
+
+{
+  "email": "testadmin@example.com",
+  "password": "Admin@123"
+}
+
+# Copy the token from the response above
+
+###
+
+### STEP 3: Fix user to Admin role (Replace YOUR_TOKEN with token from STEP 2)
+POST http://localhost:5000/api/admin/users/testadmin@example.com/fix-admin-role
+Authorization: Bearer YOUR_TOKEN
+Content-Type: application/json
+
+###
+
+### STEP 4: Login again to get fresh Admin token
+POST http://localhost:5000/api/authentication/login
+Content-Type: application/json
+
+{
+  "email": "testadmin@example.com",
+  "password": "Admin@123"
+}
+
+# Copy the NEW token from the response above
+
+###
+
+### STEP 5: Get all instructors (test with admin token - Replace YOUR_ADMIN_TOKEN)
+GET http://localhost:5000/api/admin/instructors
+Authorization: Bearer YOUR_ADMIN_TOKEN
+
+###
+
+### STEP 6: Create Instructor (Replace YOUR_ADMIN_TOKEN with token from STEP 4)
+POST http://localhost:5000/api/admin/instructors
+Authorization: Bearer YOUR_ADMIN_TOKEN
+Content-Type: application/json
+
+{
+  "email": "instructor1@example.com",
+  "firstName": "John",
+  "lastName": "Instructor",
+  "password": "Instructor@123",
+  "phoneNumber": "9876543210"
+}
+
+###
+
+### STEP 7: Verify instructor was created
+GET http://localhost:5000/api/admin/instructors
+Authorization: Bearer YOUR_ADMIN_TOKEN
+
+###
+
+### TEST 3: Try creating instructor with weak password (should get 400)
+POST http://localhost:5000/api/admin/instructors
+Authorization: Bearer YOUR_ADMIN_TOKEN
+Content-Type: application/json
+
+{
+  "email": "instructor2@example.com",
+  "firstName": "Jane",
+  "lastName": "Doe",
+  "password": "123",
+  "phoneNumber": "1111111111"
+}
+
+###
+
+### TEST 4: Try creating instructor with duplicate email (should get 400)
+POST http://localhost:5000/api/admin/instructors
+Authorization: Bearer YOUR_ADMIN_TOKEN
+Content-Type: application/json
+
+{
+  "email": "instructor1@example.com",
+  "firstName": "Duplicate",
+  "lastName": "Test",
+  "password": "Instructor@123",
+  "phoneNumber": "5555555555"
+}

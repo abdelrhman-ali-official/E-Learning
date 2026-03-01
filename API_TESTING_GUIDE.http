@@ -1,0 +1,800 @@
+# API Testing Examples
+
+## Authentication
+First, you need to register and login to get a JWT token.
+
+### Register User
+POST https://localhost:5001/api/authentication/register
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "Password123!",
+  "confirmPassword": "Password123!",
+  "firstName": "John",
+  "lastName": "Doe"
+}
+
+### Login
+POST https://localhost:5001/api/authentication/login
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "Password123!"
+}
+
+Response will include:
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "expiration": "2024-07-12T10:00:00Z"
+}
+
+### Use token in subsequent requests
+Authorization: Bearer {token}
+
+---
+
+## Content Management (Admin Only)
+
+### Create Video Content
+POST https://localhost:5001/api/content
+Authorization: Bearer {admin-token}
+Content-Type: application/json
+
+{
+  "title": "Complete ASP.NET Core Course",
+  "description": "Learn ASP.NET Core from beginner to advanced",
+  "thumbnailUrl": "https://cdn.example.com/thumbnails/aspnet-course.jpg",
+  "type": 1,
+  "price": 99.99,
+  "accessDurationWeeks": 12,
+  "youtubeVideoId": "dQw4w9WgXcQ",
+  "isVisible": true
+}
+
+### Create Live Session Content
+POST https://localhost:5001/api/content
+Authorization: Bearer {admin-token}
+Content-Type: application/json
+
+{
+  "title": "Live Q&A Session",
+  "description": "Weekly live session with instructor",
+  "thumbnailUrl": "https://cdn.example.com/thumbnails/live-session.jpg",
+  "type": 2,
+  "price": 29.99,
+  "accessDurationWeeks": 1,
+  "youtubeVideoId": "live-stream-id",
+  "isLiveActive": false,
+  "isVisible": true
+}
+
+### Create PDF Content
+POST https://localhost:5001/api/content
+Authorization: Bearer {admin-token}
+Content-Type: application/json
+
+{
+  "title": "ASP.NET Core Cheat Sheet",
+  "description": "Quick reference guide for ASP.NET Core",
+  "thumbnailUrl": "https://cdn.example.com/thumbnails/pdf-guide.jpg",
+  "type": 3,
+  "price": 9.99,
+  "accessDurationWeeks": 52,
+  "isVisible": true
+}
+
+### Update Content
+PUT https://localhost:5001/api/content/1
+Authorization: Bearer {admin-token}
+Content-Type: application/json
+
+{
+  "title": "Updated Title",
+  "price": 79.99
+}
+
+### Toggle Visibility
+PATCH https://localhost:5001/api/content/1/visibility
+Authorization: Bearer {admin-token}
+
+### Toggle Live Status (for Live content only)
+PATCH https://localhost:5001/api/content/2/live-status
+Authorization: Bearer {admin-token}
+
+### Delete Content
+DELETE https://localhost:5001/api/content/1
+Authorization: Bearer {admin-token}
+
+### Get All Content (Admin)
+GET https://localhost:5001/api/content?pageIndex=1&pageSize=10
+Authorization: Bearer {admin-token}
+
+---
+
+## Public Content Access
+
+### Get Visible Content (No Auth Required)
+GET https://localhost:5001/api/content/visible?pageIndex=1&pageSize=10
+
+### Get Single Content
+GET https://localhost:5001/api/content/1
+
+---
+
+## Purchase Flow
+
+### Get My Purchases
+GET https://localhost:5001/api/purchase/my-purchases
+Authorization: Bearer {user-token}
+
+### Get All Purchases (Admin)
+GET https://localhost:5001/api/purchase?pageIndex=1&pageSize=10
+Authorization: Bearer {admin-token}
+
+---
+
+## Manual Payment Flow (InstaPay/Vodafone Cash)
+
+### Step 1: Submit Manual Payment Request with Screenshot
+# Note: This uses multipart/form-data with file upload
+# Cannot be directly tested in .http files - use Postman, curl, or frontend
+
+POST https://localhost:5001/api/manualpayment
+Authorization: Bearer {user-token}
+Content-Type: multipart/form-data
+
+Form fields:
+- ContentId: 1
+- TransferMethod: 1
+- ReferenceNumber: IP20240212123456
+- Screenshot: [file] payment-proof.jpg
+
+Note: transferMethod values:
+- 1 = InstaPay
+- 2 = VodafoneCash
+
+File requirements:
+- Type: JPEG, PNG, WebP, or GIF
+- Max size: 5 MB
+
+### Step 2: Get My Payment Requests
+GET https://localhost:5001/api/manualpayment/my-requests
+Authorization: Bearer {user-token}
+
+### Step 3: Admin - Get Pending Requests
+GET https://localhost:5001/api/manualpayment/pending?pageIndex=1&pageSize=10
+Authorization: Bearer {admin-token}
+
+### Step 4a: Admin - Approve Payment
+PUT https://localhost:5001/api/manualpayment/5/approve
+Authorization: Bearer {admin-token}
+
+# No request body needed
+# This automatically creates a Purchase record
+
+### Step 4b: Admin - Reject Payment
+PUT https://localhost:5001/api/manualpayment/5/reject?reason=Invalid+reference+number
+Authorization: Bearer {admin-token}
+
+# Rejection reason is passed as query parameter
+
+---
+
+## Content Access (After Purchase)
+
+### Access Purchased Content
+GET https://localhost:5001/api/content/1/access
+Authorization: Bearer {user-token}
+
+Response for Video:
+{
+  "contentId": 1,
+  "title": "Complete ASP.NET Core Course",
+  "type": "Video",
+  "youtubeEmbedUrl": "https://www.youtube.com/embed/dQw4w9WgXcQ",
+  "expiryDate": "2024-10-12T10:00:00Z",
+  "isLiveActive": false
+}
+
+Response for Live (when active):
+{
+  "contentId": 2,
+  "title": "Live Q&A Session",
+  "type": "Live",
+  "youtubeEmbedUrl": "https://www.youtube.com/embed/live-stream-id",
+  "expiryDate": "2024-03-12T10:00:00Z",
+  "isLiveActive": true
+}
+
+Response for PDF:
+{
+  "contentId": 3,
+  "title": "ASP.NET Core Cheat Sheet",
+  "type": "PDF",
+  "accessUrl": "/api/content/3/download",
+  "expiryDate": "2025-02-12T10:00:00Z",
+  "isLiveActive": false
+}
+
+---
+
+## Testing Workflow
+
+### Complete User Journey:
+
+1. **Register** → POST /api/authentication/register
+2. **Login** → POST /api/authentication/login (get token)
+3. **Browse Content** → GET /api/content/visible
+4. **View Details** → GET /api/content/1
+
+5. **Manual Payment:**
+   - Transfer money via InstaPay/Vodafone Cash
+   - Take screenshot of transaction
+   - Submit request with file upload → POST /api/manualpayment
+   - Admin reviews → GET /api/manualpayment/pending
+   - Admin approves → PUT /api/manualpayment/{id}/approve
+   - Access content → GET /api/content/1/access
+
+6. **View My Purchases** → GET /api/purchase/my-purchases
+
+---
+
+## Error Responses
+
+### Unauthorized (401)
+{
+  "title": "Unauthorized",
+  "status": 401,
+  "detail": "You are not authorized to access this resource"
+}
+
+### Not Found (404)
+{
+  "title": "Not Found",
+  "status": 404,
+  "detail": "Content with ID 999 not found"
+}
+
+### Validation Error (400)
+{
+  "title": "Validation Failed",
+  "status": 400,
+  "errors": {
+    "Title": ["Title is required"],
+    "Price": ["Price must be between 0.01 and 100000"]
+  }
+}
+
+### Access Denied (403)
+{
+  "title": "Forbidden",
+  "status": 403,
+  "detail": "You don't have access to this content or your access has expired"
+}
+
+---
+
+## Testing with cURL
+
+### Create Content (Admin)
+```bash
+curl -X POST https://localhost:5001/api/content \
+  -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Test Course",
+    "description": "Test Description",
+    "type": 1,
+    "price": 49.99,
+    "accessDurationWeeks": 8,
+    "youtubeVideoId": "test123",
+    "isVisible": true
+  }'
+```
+
+### Submit Manual Payment with File Upload
+```bash
+curl -X POST https://localhost:5001/api/manualpayment \
+  -H "Authorization: Bearer YOUR_USER_TOKEN" \
+  -F "ContentId=1" \
+  -F "TransferMethod=1" \
+  -F "ReferenceNumber=IP20240212123456" \
+  -F "Screenshot=@/path/to/payment-proof.jpg"
+```
+
+### Approve Manual Payment (Admin)
+```bash
+curl -X PUT https://localhost:5001/api/manualpayment/5/approve \
+  -H "Authorization: Bearer YOUR_ADMIN_TOKEN"
+```
+
+### Reject Manual Payment (Admin)
+```bash
+curl -X PUT "https://localhost:5001/api/manualpayment/5/reject?reason=Invalid+transaction" \
+  -H "Authorization: Bearer YOUR_ADMIN_TOKEN"
+```
+
+---
+
+## Postman Collection
+
+Import this into Postman for easy testing:
+
+1. Create a new collection "E-Learning API"
+2. Add environment variables:
+   - `baseUrl`: https://localhost:5001
+   - `userToken`: (set after login)
+   - `adminToken`: (set after admin login)
+3. Add all the above requests
+4. Use `{{baseUrl}}` and `{{userToken}}` placeholders
+
+### Testing File Upload in Postman:
+1. Set request method to POST
+2. Set URL: {{baseUrl}}/api/manualpayment
+3. Headers: Authorization: Bearer {{userToken}}
+4. Body tab → select "form-data"
+5. Add fields:
+   - ContentId: 1 (Text)
+   - TransferMethod: 1 (Text)
+   - ReferenceNumber: IP123456 (Text)
+   - Screenshot: [Select File]
+
+---
+
+## Live Session Management (NEW)
+
+### Admin: Create Live Session
+POST https://localhost:5001/api/admin/courses/1/live
+Authorization: Bearer {admin-token}
+Content-Type: application/json
+
+{
+  "title": "Introduction to ASP.NET Core Live Session",
+  "description": "Live coding session covering the basics of ASP.NET Core Web API",
+  "meetingLink": "https://zoom.us/j/1234567890",
+  "instructorId": "instructor-user-id-here",
+  "scheduledStart": "2026-03-01T14:00:00Z",
+  "scheduledEnd": "2026-03-01T16:00:00Z"
+}
+
+### Admin: Update Live Session
+PUT https://localhost:5001/api/admin/live/3fa85f64-5717-4562-b3fc-2c963f66afa6
+Authorization: Bearer {admin-token}
+Content-Type: application/json
+
+{
+  "title": "Updated Live Session Title",
+  "description": "Updated description",
+  "meetingLink": "https://zoom.us/j/0987654321",
+  "scheduledStart": "2026-03-01T15:00:00Z",
+  "scheduledEnd": "2026-03-01T17:00:00Z"
+}
+
+### Admin: Activate Live Session
+PATCH https://localhost:5001/api/admin/live/3fa85f64-5717-4562-b3fc-2c963f66afa6/activate
+Authorization: Bearer {admin-token}
+
+### Admin: Deactivate Live Session
+PATCH https://localhost:5001/api/admin/live/3fa85f64-5717-4562-b3fc-2c963f66afa6/deactivate
+Authorization: Bearer {admin-token}
+
+### Admin: Delete Live Session
+DELETE https://localhost:5001/api/admin/live/3fa85f64-5717-4562-b3fc-2c963f66afa6
+Authorization: Bearer {admin-token}
+
+### Admin: Get All Sessions for Course
+GET https://localhost:5001/api/admin/courses/1/live
+Authorization: Bearer {admin-token}
+
+---
+
+## Instructor: Manage Own Live Sessions (NEW)
+
+### Instructor: Create Live Session
+POST https://localhost:5001/api/instructor/courses/1/live-sessions
+Authorization: Bearer {instructor-token}
+Content-Type: application/json
+
+{
+  "title": "Advanced C# Patterns",
+  "description": "Deep dive into CQRS and Event Sourcing",
+  "meetingLink": "https://meet.google.com/abc-defg-hij",
+  "instructorId": "your-instructor-id-from-token",
+  "scheduledStart": "2026-03-15T18:00:00Z",
+  "scheduledEnd": "2026-03-15T20:00:00Z"
+}
+
+### Instructor: Update Own Live Session
+PUT https://localhost:5001/api/instructor/live-sessions/3fa85f64-5717-4562-b3fc-2c963f66afa6
+Authorization: Bearer {instructor-token}
+Content-Type: application/json
+
+{
+  "title": "Updated: Advanced C# Patterns",
+  "description": "Updated content",
+  "meetingLink": "https://zoom.us/j/1112223333",
+  "scheduledStart": "2026-03-15T19:00:00Z",
+  "scheduledEnd": "2026-03-15T21:00:00Z"
+}
+
+### Instructor: Delete Own Live Session
+DELETE https://localhost:5001/api/instructor/live-sessions/3fa85f64-5717-4562-b3fc-2c963f66afa6
+Authorization: Bearer {instructor-token}
+
+### Instructor: Get Sessions for Course
+GET https://localhost:5001/api/instructor/courses/1/live-sessions
+Authorization: Bearer {instructor-token}
+
+---
+
+## Student: View Live Sessions (NEW)
+
+### Student: Get Upcoming Sessions
+GET https://localhost:5001/api/live-sessions/upcoming
+Authorization: Bearer {student-token}
+
+### Student: Get Specific Session
+GET https://localhost:5001/api/live-sessions/3fa85f64-5717-4562-b3fc-2c963f66afa6
+Authorization: Bearer {student-token}
+
+### Student: Get Course Live Sessions
+GET https://localhost:5001/api/courses/1/live-sessions
+Authorization: Bearer {student-token}
+
+---
+
+## Content with Google Drive Video Support (NEW)
+
+### Create Content with Google Drive Link
+POST https://localhost:5001/api/content
+Authorization: Bearer {admin-token}
+Content-Type: application/json
+
+{
+  "title": "React Fundamentals Video Course",
+  "description": "Complete React tutorial hosted on Google Drive",
+  "thumbnailUrl": "https://cdn.example.com/thumbnails/react-course.jpg",
+  "type": 1,
+  "price": 49.99,
+  "accessDurationWeeks": 12,
+  "externalVideoUrl": "https://drive.google.com/file/d/1a2b3c4d5e6f7g8h9i0j/view",
+  "isVisible": true
+}
+
+### Update Content with Google Drive Link
+PUT https://localhost:5001/api/content/123
+Authorization: Bearer {admin-token}
+Content-Type: application/json
+
+{
+  "title": "Updated: React Fundamentals",
+  "externalVideoUrl": "https://drive.google.com/file/d/9z8y7x6w5v4u3t2s1r0q/edit"
+}
+
+---
+
+## Testing Notes
+
+### Meeting Link Validation
+The system accepts URLs from these providers:
+- Zoom: https://zoom.us/j/*
+- Google Meet: https://meet.google.com/*
+- Microsoft Teams: https://teams.microsoft.com/*
+- Webex: https://webex.com/*
+
+### Google Drive URL Auto-Conversion
+Input formats automatically converted to embeddable previews:
+- https://drive.google.com/file/d/FILE_ID/view → /preview
+- https://drive.google.com/file/d/FILE_ID/edit → /preview
+- https://drive.google.com/open?id=FILE_ID → /preview
+
+### Authorization Rules
+- **Admin**: Full access to all endpoints
+- **Instructor**: Can create/edit/delete only their own sessions
+- **Student**: Read-only access to enrolled course sessions
+
+### Validation Rules
+- Session start time must be before end time
+- Meeting link must be a valid URL
+- Title max 200 characters
+- Description max 2000 characters
+
+---
+
+## 🆕 NEW ENDPOINTS - Business Logic Implementation
+
+### Admin: Create Instructor Account
+POST https://localhost:5001/api/admin/instructors
+Authorization: Bearer {admin-token}
+Content-Type: application/json
+
+{
+  "email": "instructor@example.com",
+  "firstName": "John",
+  "lastName": "Smith",
+  "password": "Instructor123!",
+  "phoneNumber": "+1234567890"
+}
+
+### Admin: Get All Instructors
+GET https://localhost:5001/api/admin/instructors
+Authorization: Bearer {admin-token}
+
+---
+
+## Instructor Content Management
+
+### Instructor: Create a Course
+POST http://localhost:5000/api/instructor/courses
+Authorization: Bearer {instructor-token}
+Content-Type: application/json
+
+{
+  "title": "test1",
+  "description": "test1",
+  "thumbnailUrl": "https://example.com/thumbnail.jpg",
+  "price": 100,
+  "isFree": true,
+  "estimatedDurationMinutes": 120,
+  "category": "Programming",
+  "level": "Beginner",
+  "requirements": "Basic computer skills",
+  "learningObjectives": "Learn the fundamentals of programming"
+}
+
+### Instructor: Get All My Courses
+GET https://localhost:5001/api/instructor/courses?pageIndex=1&pageSize=10
+Authorization: Bearer {instructor-token}
+
+### Instructor: Get Specific Course
+GET https://localhost:5001/api/instructor/courses/{course-id}
+Authorization: Bearer {instructor-token}
+
+### Instructor: Update My Course
+PUT https://localhost:5001/api/instructor/courses/{course-id}
+Authorization: Bearer {instructor-token}
+Content-Type: application/json
+
+{
+  "title": "Updated Course Title",
+  "price": 89.99
+}
+
+### Instructor: Publish Course (make visible to students)
+PATCH https://localhost:5001/api/instructor/courses/{course-id}/publish
+Authorization: Bearer {instructor-token}
+
+### Instructor: Unpublish Course
+PATCH https://localhost:5001/api/instructor/courses/{course-id}/unpublish
+Authorization: Bearer {instructor-token}
+
+### Instructor: Delete My Course
+DELETE https://localhost:5001/api/instructor/courses/{course-id}
+Authorization: Bearer {instructor-token}
+
+### Instructor: Create Video Content
+POST https://localhost:5001/api/instructor/content
+Authorization: Bearer {instructor-token}
+Content-Type: application/json
+
+{
+  "title": "React Hooks Tutorial - Part 1",
+  "description": "Learn about useState and useEffect hooks",
+  "thumbnailUrl": "https://cdn.example.com/react-hooks.jpg",
+  "type": 1,
+  "price": 0,
+  "accessDurationWeeks": 52,
+  "externalVideoUrl": "https://drive.google.com/file/d/abc123xyz/view",
+  "isVisible": true
+}
+
+### Instructor: Upload PDF Material
+POST https://localhost:5001/api/instructor/content/material
+Authorization: Bearer {instructor-token}
+Content-Type: application/json
+
+{
+  "title": "Course Syllabus",
+  "description": "Complete course outline and schedule",
+  "type": 3,
+  "price": 0,
+  "accessDurationWeeks": 52,
+  "externalVideoUrl": "https://drive.google.com/file/d/syllabus123/view",
+  "isVisible": true
+}
+
+### Instructor: Upload Image Material
+POST https://localhost:5001/api/instructor/content/material
+Authorization: Bearer {instructor-token}
+Content-Type: application/json
+
+{
+  "title": "System Architecture Diagram",
+  "description": "Visual representation of the system",
+  "type": 4,
+  "price": 0,
+  "accessDurationWeeks": 52,
+  "externalVideoUrl": "https://drive.google.com/file/d/diagram456/view",
+  "isVisible": true
+}
+
+### Instructor: Update Content
+PUT https://localhost:5001/api/instructor/content/123
+Authorization: Bearer {instructor-token}
+Content-Type: application/json
+
+{
+  "title": "Updated: React Hooks Tutorial",
+  "description": "Enhanced content with more examples",
+  "externalVideoUrl": "https://drive.google.com/file/d/updated789/view"
+}
+
+### Instructor: Delete Content
+DELETE https://localhost:5001/api/instructor/content/123
+Authorization: Bearer {instructor-token}
+
+### Instructor: View All My Content
+GET https://localhost:5001/api/instructor/content?pageIndex=1&pageSize=10
+Authorization: Bearer {instructor-token}
+
+### Instructor: Get Specific Content
+GET https://localhost:5001/api/instructor/content/123
+Authorization: Bearer {instructor-token}
+
+---
+
+## Student Content Access
+
+### Student: View Purchased/Subscribed Content
+GET https://localhost:5001/api/student/content/123
+Authorization: Bearer {student-token}
+
+Note: Returns 403 Forbidden if student hasn't purchased or subscribed
+
+### Student: List All Accessible Content
+GET https://localhost:5001/api/student/content?pageIndex=1&pageSize=10
+Authorization: Bearer {student-token}
+
+### Student: View Course Materials (PDFs, Images, etc.)
+GET https://localhost:5001/api/student/content/materials?pageIndex=1&pageSize=10
+Authorization: Bearer {student-token}
+
+### Student: Get Streaming URL for Purchased Video
+GET https://localhost:5001/api/student/content/123/stream
+Authorization: Bearer {student-token}
+
+Response includes:
+{
+  "id": 123,
+  "title": "React Tutorial",
+  "streamUrl": "https://drive.google.com/file/d/abc123/preview",
+  "type": 1
+}
+
+---
+
+## Content Types Reference
+```
+1 = Video
+2 = Live Session
+3 = PDF
+4 = Image
+5 = Document
+6 = Audio
+7 = Other
+```
+
+## User Roles Reference
+```
+1 = Student
+2 = Instructor
+3 = User (regular)
+4 = Admin
+```
+
+---
+
+## Course E-Wallet Payment System
+
+### Instructor: Add e-wallet payment method to a course
+POST http://localhost:5000/api/instructor/courses/{{courseId}}/payment-methods
+Authorization: Bearer {{instructor-token}}
+Content-Type: application/json
+
+{
+  "methodName": "Vodafone Cash",
+  "walletNumber": "01099887766"
+}
+
+###
+
+### Instructor: Update payment method
+PUT http://localhost:5000/api/instructor/courses/{{courseId}}/payment-methods/1
+Authorization: Bearer {{instructor-token}}
+Content-Type: application/json
+
+{
+  "methodName": "InstaPay",
+  "walletNumber": "01234567890"
+}
+
+###
+
+### Instructor: Deactivate payment method
+DELETE http://localhost:5000/api/instructor/courses/{{courseId}}/payment-methods/1
+Authorization: Bearer {{instructor-token}}
+
+###
+
+### Instructor: List payment methods for a course
+GET http://localhost:5000/api/instructor/courses/{{courseId}}/payment-methods
+Authorization: Bearer {{instructor-token}}
+
+###
+
+### Student (or anyone): View available payment methods for a course
+GET http://localhost:5000/api/courses/{{courseId}}/payment-methods
+
+###
+
+### Student: Submit payment proof (multipart/form-data)
+# 1. Transfer money to the wallet number shown above
+# 2. POST this with your screenshot image file
+POST http://localhost:5000/api/courses/{{courseId}}/pay
+Authorization: Bearer {{student-token}}
+Content-Type: multipart/form-data; boundary=----boundary
+
+------boundary
+Content-Disposition: form-data; name="eWalletMethodId"
+
+1
+------boundary
+Content-Disposition: form-data; name="studentWalletNumber"
+
+01012345678
+------boundary
+Content-Disposition: form-data; name="screenshot"; filename="receipt.jpg"
+Content-Type: image/jpeg
+
+< ./receipt.jpg
+------boundary--
+
+###
+
+### Student: View my payment requests
+GET http://localhost:5000/api/student/course-payments
+Authorization: Bearer {{student-token}}
+
+###
+
+### Admin: View all pending course payment requests
+GET http://localhost:5000/api/admin/payments/course/pending
+Authorization: Bearer {{admin-token}}
+
+###
+
+### Admin: View all course payment requests (all statuses)
+GET http://localhost:5000/api/admin/payments/course/all?pageIndex=1&pageSize=20
+Authorization: Bearer {{admin-token}}
+
+###
+
+### Admin: Approve a payment request (auto-enrolls student)
+PATCH http://localhost:5000/api/admin/payments/course/1/approve
+Authorization: Bearer {{admin-token}}
+
+###
+
+### Admin: Reject a payment request
+PATCH http://localhost:5000/api/admin/payments/course/1/reject
+Authorization: Bearer {{admin-token}}
+Content-Type: application/json
+
+{
+  "approve": false,
+  "rejectionReason": "Screenshot is blurry, please resubmit."
+}
+
+---

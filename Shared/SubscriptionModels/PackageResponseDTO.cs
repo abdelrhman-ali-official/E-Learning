@@ -1,0 +1,23 @@
+using Domain.Entities.SubscriptionEntities;
+
+namespace Shared.SubscriptionModels
+{
+    public class PackageResponseDTO
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public decimal PriceMonthly { get; set; }
+        public decimal PriceYearly { get; set; }
+        public decimal DiscountPercentage { get; set; }
+        public bool IsActive { get; set; }
+        public bool IsFeatured { get; set; }
+        public int MaxCoursesAccess { get; set; }
+        public bool HasLiveAccess { get; set; }
+        public bool HasRecordedAccess { get; set; }
+        public bool HasCertificate { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
+        public List<PackageFeatureDTO> Features { get; set; } = new();
+    }
+}

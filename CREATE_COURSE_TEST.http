@@ -1,0 +1,56 @@
+### Step 1: Login as Admin (use seeded credentials)
+POST http://localhost:5000/api/authentication/login
+Content-Type: application/json
+
+{
+  "email": "abdelrhmanali2119@gmail.com",
+  "password": "Abdo@888"
+}
+
+### Step 2: Create Instructor Account (using admin token from Step 1)
+POST http://localhost:5000/api/admin/instructors
+Authorization: Bearer {{your_admin_token_here}}
+Content-Type: application/json
+
+{
+  "email": "instructor1@test.com",
+  "firstName": "Test",
+  "lastName": "Instructor",
+  "password": "Instructor@123",
+  "phoneNumber": "+1234567890"
+}
+
+### Step 3: Login as Instructor
+POST http://localhost:5000/api/authentication/login
+Content-Type: application/json
+
+{
+  "email": "instructor1@test.com",
+  "password": "Instructor@123"
+}
+
+### Step 4: Create Course with Your Data (using instructor token from Step 3)
+POST http://localhost:5000/api/instructor/courses
+Authorization: Bearer {{your_instructor_token_here}}
+Content-Type: application/json
+
+{
+  "title": "test1",
+  "description": "test1",
+  "thumbnailUrl": "https://example.com/thumbnail.jpg",
+  "price": 100,
+  "isFree": true,
+  "estimatedDurationMinutes": 120,
+  "category": "Programming",
+  "level": "Beginner",
+  "requirements": "Basic computer skills",
+  "learningObjectives": "Learn the fundamentals"
+}
+
+### Step 5: Get All Courses Created by Instructor
+GET http://localhost:5000/api/instructor/courses?pageIndex=1&pageSize=10
+Authorization: Bearer {{your_instructor_token_here}}
+
+### Step 6: Publish the Course
+PATCH http://localhost:5000/api/instructor/courses/{{course_id}}/publish
+Authorization: Bearer {{your_instructor_token_here}}

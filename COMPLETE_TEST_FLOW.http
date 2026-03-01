@@ -1,0 +1,166 @@
+### ==========================================
+### COMPLETE INSTRUCTOR CREATION TEST FLOW
+### ==========================================
+### Use this file with VS Code REST Client extension
+### Or test manually via Swagger UI at: http://localhost:5000/swagger
+
+@baseUrl = http://localhost:5000
+@adminEmail = testadmin@example.com
+@adminPassword = Admin@12345
+
+### ==========================================
+### TEST 0: Verify API is running and controller is loaded
+### ==========================================
+GET {{baseUrl}}/api/admin/test
+### Expected: 200 OK with JSON response
+
+### ==========================================
+### STEP 1: Register a new admin user
+### ==========================================
+POST {{baseUrl}}/api/authentication/register
+Content-Type: application/json
+
+{
+  "email": "{{adminEmail}}",
+  "password": "{{adminPassword}}",
+  "firstName": "Admin",
+  "lastName": "Test",
+  "userName": "testadmin",
+  "phoneNumber": "1234567890",
+  "userRole": 1,
+  "gender": 1
+}
+### Expected: 200 OK
+
+### ==========================================
+### STEP 2: Login to get JWT token
+### ==========================================
+# @name login
+POST {{baseUrl}}/api/authentication/login
+Content-Type: application/json
+
+{
+  "email": "{{adminEmail}}",
+  "password": "{{adminPassword}}"
+}
+### Expected: 200 OK with token in response
+### COPY THE TOKEN FROM RESPONSE
+
+@token = {{login.response.body.token}}
+
+### ==========================================
+### STEP 3: Fix user to Admin role
+### ==========================================
+POST {{baseUrl}}/api/admin/users/{{adminEmail}}/fix-admin-role
+Authorization: Bearer {{token}}
+Content-Type: application/json
+### Expected: May return 401 if not admin yet, or 200 if successful
+
+### ==========================================
+### STEP 4: Login again to get fresh Admin token
+### ==========================================
+# @name adminLogin
+POST {{baseUrl}}/api/authentication/login
+Content-Type: application/json
+
+{
+  "email": "{{adminEmail}}",
+  "password": "{{adminPassword}}"
+}
+### Expected: 200 OK with NEW token
+### Token should now have Admin role
+
+@adminToken = {{adminLogin.response.body.token}}
+
+### ==========================================
+### STEP 5: Test GET instructors (should return empty list)
+### ==========================================
+GET {{baseUrl}}/api/admin/instructors
+Authorization: Bearer {{adminToken}}
+### Expected: 200 OK with empty array []
+
+### ==========================================
+### STEP 6: Create first instructor
+### ==========================================
+POST {{baseUrl}}/api/admin/instructors
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "email": "instructor1@example.com",
+  "firstName": "John",
+  "lastName": "Instructor",
+  "password": "Instructor@123",
+  "phoneNumber": "9876543210"
+}
+### Expected: 201 Created
+
+### ==========================================
+### STEP 7: Verify instructor was created
+### ==========================================
+GET {{baseUrl}}/api/admin/instructors
+Authorization: Bearer {{adminToken}}
+### Expected: 200 OK with array containing 1 instructor
+
+### ==========================================
+### STEP 8: Create second instructor
+### ==========================================
+POST {{baseUrl}}/api/admin/instructors
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "email": "instructor2@example.com",
+  "firstName": "Jane",
+  "lastName": "Teacher",
+  "password": "Teacher@456",
+  "phoneNumber": "5551234567"
+}
+### Expected: 201 Created
+
+### ==========================================
+###  ERROR TEST: Try without authentication
+### ==========================================
+POST {{baseUrl}}/api/admin/instructors
+Content-Type: application/json
+
+{
+  "email": "nope@example.com",
+  "firstName": "No",
+  "lastName": "Auth",
+  "password": "Pass@123",
+  "phoneNumber": "1111111111"
+}
+### Expected: 401 Unauthorized
+
+### ==========================================
+### ERROR TEST: Weak password
+### ==========================================
+POST {{baseUrl}}/api/admin/instructors
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "email": "weak@example.com",
+  "firstName": "Weak",
+  "lastName": "Pass",
+  "password": "123",
+  "phoneNumber": "2222222222"
+}
+### Expected: 400 Bad Request
+
+### ==========================================
+### ERROR TEST: Duplicate email
+### ==========================================
+POST {{baseUrl}}/api/admin/instructors
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "email": "instructor1@example.com",
+  "firstName": "Duplicate",
+  "lastName": "Test",
+  "password": "Pass@123456",
+  "phoneNumber": "3333333333"
+}
+### Expected: 400 Bad Request with validation error
