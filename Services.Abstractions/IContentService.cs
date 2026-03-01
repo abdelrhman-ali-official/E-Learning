@@ -19,6 +19,13 @@ namespace Services.Abstractions
         /// </summary>
         Task<IEnumerable<PublicCourseContentDTO>> GetPublicCourseContentsAsync(Guid courseId);
 
+        // --- Student completion tracking ---
+        /// <summary>Marks a content item complete or incomplete for a student, and recalculates enrollment progress.</summary>
+        Task MarkContentCompleteAsync(Guid courseId, int contentId, string userId, bool isComplete);
+
+        /// <summary>Returns per-item completion status and overall progress for a student in a course.</summary>
+        Task<ContentProgressDTO> GetCourseContentProgressAsync(Guid courseId, string userId);
+
         // --- Admin management ---
         Task<PaginatedResult<ContentResultDTO>> GetAllContentsAsync(int pageIndex = 1, int pageSize = 10);
         Task DeleteContentAsync(int id);

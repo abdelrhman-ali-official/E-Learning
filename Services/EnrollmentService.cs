@@ -3,6 +3,7 @@ using Domain.Entities.SubscriptionEntities;
 using Domain.Exceptions;
 using Shared.CourseModels;
 using Shared.Helpers;
+using System.Collections.Generic;
 
 namespace Services
 {
@@ -106,7 +107,11 @@ namespace Services
                 e.CourseId == courseId && 
                 e.StudentId == studentId);
 
-            return enrollment != null ? _mapper.Map<EnrollmentResponseDTO>(enrollment) : null;
+            if (enrollment == null) return null;
+
+            var course = await _unitOfWork.GetRepository<Course, Guid>().GetAsync(enrollment.CourseId);
+            var dto = _mapper.Map<EnrollmentResponseDTO>(enrollment);
+            return course != null ? dto with { CourseTitle = course.Title } : dto;
         }
 
         public async Task<IEnumerable<EnrollmentResponseDTO>> GetStudentEnrollmentsAsync(string studentId)
@@ -114,9 +119,24 @@ namespace Services
             var enrollments = await _unitOfWork.GetRepository<Enrollment, Guid>().GetAllAsync();
             var studentEnrollments = enrollments
                 .Where(e => e.StudentId == studentId && e.IsActive)
-                .OrderByDescending(e => e.LastAccessedAt);
+                .OrderByDescending(e => e.LastAccessedAt)
+                .ToList();
 
-            return _mapper.Map<IEnumerable<EnrollmentResponseDTO>>(studentEnrollments);
+            // Load course titles
+            var courseIds = studentEnrollments.Select(e => e.CourseId).Distinct().ToHashSet();
+            var allCourses = await _unitOfWork.GetRepository<Course, Guid>().GetAllAsync();
+            var courseMap = allCourses
+                .Where(c => courseIds.Contains(c.Id))
+                .ToDictionary(c => c.Id, c => c.Title);
+
+            var mapped = _mapper.Map<List<EnrollmentResponseDTO>>(studentEnrollments);
+            for (int i = 0; i < mapped.Count; i++)
+            {
+                if (courseMap.TryGetValue(studentEnrollments[i].CourseId, out var title))
+                    mapped[i] = mapped[i] with { CourseTitle = title };
+            }
+
+            return mapped;
         }
 
         public async Task UpdateProgressAsync(Guid enrollmentId, int completedVideos, int totalVideos)

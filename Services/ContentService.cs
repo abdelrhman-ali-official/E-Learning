@@ -197,5 +197,112 @@ namespace Services
 
             return mapper.Map<ContentResultDTO>(content);
         }
+
+        public async Task MarkContentCompleteAsync(Guid courseId, int contentId, string userId, bool isComplete)
+        {
+            // Verify content belongs to this course
+            var content = await unitOfWork.GetRepository<Content, int>().GetAsync(contentId)
+                ?? throw new ContentNotFoundException(contentId);
+
+            if (content.CourseId != courseId)
+                throw new ContentNotFoundException(contentId);
+
+            // Upsert WatchProgress
+            var allProgress = await unitOfWork.GetRepository<WatchProgress, int>().GetAllAsync();
+            var existing = allProgress.FirstOrDefault(wp => wp.UserId == userId && wp.ContentId == contentId);
+
+            if (existing != null)
+            {
+                existing.IsCompleted = isComplete;
+                existing.LastUpdated = EgyptDateTime.Now;
+                unitOfWork.GetRepository<WatchProgress, int>().Update(existing);
+            }
+            else
+            {
+                var newProgress = new WatchProgress
+                {
+                    UserId = userId,
+                    ContentId = contentId,
+                    IsCompleted = isComplete,
+                    LastPositionSeconds = 0,
+                    LastUpdated = EgyptDateTime.Now
+                };
+                await unitOfWork.GetRepository<WatchProgress, int>().AddAsync(newProgress);
+            }
+
+            await unitOfWork.SaveChangesAsync();
+
+            // Recalculate enrollment progress
+            var enrollments = await unitOfWork.GetRepository<Enrollment, Guid>().GetAllAsync();
+            var enrollment = enrollments.FirstOrDefault(e => e.CourseId == courseId && e.StudentId == userId);
+            if (enrollment != null)
+            {
+                var courseContents = await unitOfWork.GetRepository<Content, int>().GetAllAsync();
+                var visibleContents = courseContents
+                    .Where(c => c.CourseId == courseId && c.IsVisible)
+                    .Select(c => c.Id)
+                    .ToHashSet();
+
+                var updatedProgress = await unitOfWork.GetRepository<WatchProgress, int>().GetAllAsync();
+                var completedCount = updatedProgress
+                    .Count(wp => wp.UserId == userId && visibleContents.Contains(wp.ContentId) && wp.IsCompleted);
+
+                enrollment.CompletedVideos = completedCount;
+                enrollment.TotalVideos = visibleContents.Count;
+                enrollment.ProgressPercentage = visibleContents.Count > 0
+                    ? (int)Math.Round((double)completedCount / visibleContents.Count * 100)
+                    : 0;
+                enrollment.LastAccessedAt = EgyptDateTime.Now;
+
+                if (enrollment.ProgressPercentage >= 100 && !enrollment.IsCertificateIssued)
+                {
+                    enrollment.IsCertificateIssued = true;
+                    enrollment.CertificateIssuedAt = EgyptDateTime.Now;
+                }
+
+                unitOfWork.GetRepository<Enrollment, Guid>().Update(enrollment);
+                await unitOfWork.SaveChangesAsync();
+            }
+        }
+
+        public async Task<ContentProgressDTO> GetCourseContentProgressAsync(Guid courseId, string userId)
+        {
+            // Verify course exists
+            _ = await unitOfWork.GetRepository<Course, Guid>().GetAsync(courseId)
+                ?? throw new CourseNotFoundException(courseId);
+
+            var courseContents = await unitOfWork.GetRepository<Content, int>().GetAllAsync();
+            var visibleContents = courseContents
+                .Where(c => c.CourseId == courseId && c.IsVisible)
+                .ToList();
+
+            var contentIds = visibleContents.Select(c => c.Id).ToHashSet();
+
+            var allProgress = await unitOfWork.GetRepository<WatchProgress, int>().GetAllAsync();
+            var progressMap = allProgress
+                .Where(wp => wp.UserId == userId && contentIds.Contains(wp.ContentId))
+                .ToDictionary(wp => wp.ContentId, wp => wp.IsCompleted);
+
+            var items = visibleContents.Select(c => new ContentCompletionStatusDTO
+            {
+                ContentId = c.Id,
+                ContentTitle = c.Title,
+                ContentType = c.Type.ToString(),
+                IsCompleted = progressMap.TryGetValue(c.Id, out var done) && done
+            }).ToList();
+
+            var completedCount = items.Count(i => i.IsCompleted);
+
+            return new ContentProgressDTO
+            {
+                CourseId = courseId,
+                TotalContents = visibleContents.Count,
+                CompletedContents = completedCount,
+                ProgressPercentage = visibleContents.Count > 0
+                    ? Math.Round((double)completedCount / visibleContents.Count * 100, 1)
+                    : 0,
+                Items = items
+            };
+        }
     }
 }
