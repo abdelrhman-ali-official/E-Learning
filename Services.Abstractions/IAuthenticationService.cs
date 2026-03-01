@@ -46,5 +46,8 @@ namespace Services.Abstractions
         
         // Admin: Get all instructors
         Task<List<UserResultDTO>> GetAllInstructorsAsync();
+
+        // Instructor / Admin: Get all students registered in the system
+        Task<List<StudentSummaryDTO>> GetAllStudentsAsync(string? instructorId = null);
     }
 }

@@ -52,7 +52,8 @@ namespace Services
                 jwtOptions,
                 domainSettings,
                 mapper,
-                serviceProvider.GetRequiredService<RoleManager<IdentityRole>>()
+                serviceProvider.GetRequiredService<RoleManager<IdentityRole>>(),
+                unitOfWork
             ));
 
             _contentService = new Lazy<IContentService>(() => new ContentService(unitOfWork, mapper));

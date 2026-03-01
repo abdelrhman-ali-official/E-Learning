@@ -28,19 +28,22 @@ namespace Services
         private readonly IOptions<DomainSettings> domainOptions;
         private readonly IMapper mapper;
         private readonly RoleManager<IdentityRole> roleManager;
+        private readonly IUnitOFWork unitOfWork;
 
         public AuthenticationService(
             UserManager<User> userManager, 
             IOptions<JwtOptions> options, 
             IOptions<DomainSettings> domainOptions, 
             IMapper mapper, 
-            RoleManager<IdentityRole> roleManager)
+            RoleManager<IdentityRole> roleManager,
+            IUnitOFWork unitOfWork)
         {
             this.userManager = userManager;
             this.options = options;
             this.domainOptions = domainOptions;
             this.mapper = mapper;
             this.roleManager = roleManager;
+            this.unitOfWork = unitOfWork;
         }
 
         public async Task<UserResultDTO> RegisterAsync(UserRegisterDTO registerModel)
@@ -974,6 +977,43 @@ namespace Services
                 Console.WriteLine($"Error getting instructors: {ex.Message}");
                 throw;
             }
+        }
+
+        public async Task<List<StudentSummaryDTO>> GetAllStudentsAsync(string? instructorId = null)
+        {
+            var students = await userManager.Users
+                .Where(u => u.UserRole == Role.Student)
+                .OrderBy(u => u.DisplayName)
+                .ToListAsync();
+
+            // If an instructorId is provided, load enrollment counts per student
+            Dictionary<string, int> enrollmentCounts = new();
+            if (!string.IsNullOrEmpty(instructorId))
+            {
+                var allEnrollments = await unitOfWork.GetRepository<Domain.Entities.CourseEntities.Enrollment, Guid>().GetAllAsync();
+                var allCourses     = await unitOfWork.GetRepository<Domain.Entities.CourseEntities.Course, Guid>().GetAllAsync();
+
+                var myCourseIds = allCourses
+                    .Where(c => c.InstructorId == instructorId && !c.IsDeleted)
+                    .Select(c => c.Id)
+                    .ToHashSet();
+
+                enrollmentCounts = allEnrollments
+                    .Where(e => myCourseIds.Contains(e.CourseId) && e.IsActive)
+                    .GroupBy(e => e.StudentId)
+                    .ToDictionary(g => g.Key, g => g.Count());
+            }
+
+            return students.Select(s => new StudentSummaryDTO
+            {
+                Id                      = s.Id,
+                DisplayName             = s.DisplayName,
+                FirstName               = s.FirstName,
+                LastName                = s.LastName,
+                Email                   = s.Email ?? string.Empty,
+                PhoneNumber             = s.PhoneNumber,
+                EnrolledInMyCoursesCount = enrollmentCounts.TryGetValue(s.Id, out var c) ? c : 0
+            }).ToList();
         }
     }
 }
